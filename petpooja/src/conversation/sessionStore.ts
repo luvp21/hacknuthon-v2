@@ -72,6 +72,7 @@ export interface CartItem {
     modifiers: { type: string; label: string; priceDelta: number }[];
     lineTotal: number;
     isUpsold: boolean;
+    notes?: string;   // special instructions e.g. "extra spicy", "no onion"
 }
 
 export interface ConversationTurn {
@@ -134,6 +135,9 @@ export interface SessionContext {
     // Flow control
     awaitingOrderConfirmation: boolean;
     awaitingCuisineChoice: boolean;
+    awaitingDiscountNudge: boolean;          // waiting for yes/no after confirm-time discount nudge
+    discountNudgeSent: boolean;             // nudge shown once — never repeat
+    discountNudgeSuggestedItemId: number | null;  // item we suggested (add on "yes")
     callEnded: boolean;
 
     // Order result
@@ -198,6 +202,9 @@ export async function createSession(
         upsell: { ...DEFAULT_UPSELL },
         awaitingOrderConfirmation: false,
         awaitingCuisineChoice: false,
+        awaitingDiscountNudge: false,
+        discountNudgeSent: false,
+        discountNudgeSuggestedItemId: null,
         callEnded: false,
         appliedOfferId: null,
         appliedDiscount: 0,
@@ -243,6 +250,9 @@ export async function updateSession(
         | 'upsell'
         | 'awaitingOrderConfirmation'
         | 'awaitingCuisineChoice'
+        | 'awaitingDiscountNudge'
+        | 'discountNudgeSent'
+        | 'discountNudgeSuggestedItemId'
         | 'callEnded'
         | 'appliedOfferId'
         | 'appliedDiscount'
@@ -397,8 +407,8 @@ export async function saveCompletedOrder(
             await query(
                 `INSERT INTO public.order_lines
                    (restaurant_id, session_id, order_id, item_id, qty,
-                    unit_price, line_total, is_upsold, accepted_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+                    unit_price, line_total, order_note, is_upsold, accepted_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
                 [
                     restaurantId,
                     session.sessionId,
@@ -407,6 +417,7 @@ export async function saveCompletedOrder(
                     item.qty,
                     item.unitPrice,
                     item.lineTotal,
+                    item.notes ?? null,
                     item.isUpsold ?? false,
                 ]
             );

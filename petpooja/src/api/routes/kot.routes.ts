@@ -31,6 +31,7 @@ interface KOTOrder {
         menu_item_name: string;
         quantity: number;
         total_price: number;
+        notes: string | null;
     }>;
 }
 
@@ -54,7 +55,8 @@ export async function kotRoutes(app: FastifyInstance): Promise<void> {
                        json_build_object(
                          'menu_item_name', COALESCE(m.name, 'Item #' || ol.item_id::text),
                          'quantity',       ol.qty,
-                         'total_price',    ol.line_total
+                         'total_price',    ol.line_total,
+                         'notes',          ol.order_note
                        )
                        ORDER BY ol.id
                      ) FILTER (WHERE ol.id IS NOT NULL),

@@ -55,6 +55,7 @@ export interface LLMOrderParseResult {
         newQty?: number;
         newModifiers?: { type: string; label: string; priceDelta: number }[];
     };
+    notes?: string;   // special instructions captured from speech
 }
 
 // ── Cart operations ───────────────────────────────────────────────────────────
@@ -157,6 +158,7 @@ export function parseLLMOrderResult(llmText: string): LLMOrderParseResult {
             })(),
             suggestions: parsed.suggestions ?? [],
             modifications: parsed.modifications,
+            notes: parsed.notes ?? undefined,
         }
     } catch {
         log.debug('parseLLMOrderResult: JSON parse failed, using raw text')
@@ -184,7 +186,8 @@ export function buildCartSummary(
             item.modifiers.length > 0
                 ? ` (${item.modifiers.map((m) => m.label).join(', ')})`
                 : ''
-        return `${item.qty}x ${item.name}${modLine} — ₹${item.lineTotal.toFixed(0)}`
+        const noteLine = item.notes ? ` [Note: ${item.notes}]` : ''
+        return `${item.qty}x ${item.name}${modLine}${noteLine} — ₹${item.lineTotal.toFixed(0)}`
     })
 
     const summaryLines = [...lines, `Subtotal: ₹${total.toFixed(0)}`]

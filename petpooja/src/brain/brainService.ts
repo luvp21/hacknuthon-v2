@@ -2,8 +2,8 @@
  * Brain Service v3
  * RAG-first conversation engine.
  * - All data comes from the pre-indexed vector store during a call.
- * - saveCompletedOrder() is the ONLY DB write â€” one transaction at confirmation.
- * - State machine: IDENTITY_COLLECTION â†’ GREETING â†’ COLLECTING_ORDER â†’ AWAITING_CONFIRMATION â†’ COMPLETED
+ * - saveCompletedOrder() is the ONLY DB write — one transaction at confirmation.
+ * - State machine: IDENTITY_COLLECTION → GREETING → COLLECTING_ORDER → AWAITING_CONFIRMATION → COMPLETED
  */
 
 import { createServiceLogger } from '../utils/logger';
@@ -21,6 +21,7 @@ import {
 } from '../conversation/sessionStore';
 import { summarizeHistory } from './contextSummarizer';
 import { retrieveForIntent } from '../rag/ragService';
+import { getByType } from '../rag/vectorStore';
 import { lookupCustomerByName, extractNameFromSpeech } from '../rag/retrievers/customerRetriever';
 import {
     getUpsellSuggestion,
@@ -62,7 +63,7 @@ export function getLastTiming(sessionId: string): { rag: number; llm: number; in
     return t;
 }
 
-// â”€â”€ Public input type â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Public input type ─────────────────────────────────────────────────────────
 
 export interface BrainInput {
     sessionId: string;
@@ -73,18 +74,18 @@ export interface BrainInput {
     isVoiceCall: boolean;
 }
 
-// â”€â”€ Signal lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Signal lists ──────────────────────────────────────────────────────────────
 
 const END_OF_CALL_SIGNALS: Record<string, string[]> = {
     en: ['bye', 'goodbye', 'hang up', 'end call', 'that\'s all', 'thats all', 'i\'m done', 'im done', 'nothing else', 'no thanks'],
-    hi: ['à¤¬à¤‚à¤¦ à¤•à¤°à¥‹', 'à¤¬à¤¾à¤¯', 'à¤¬à¤¸', 'à¤ à¥€à¤• à¤¹à¥ˆ à¤¬à¤¸', 'à¤§à¤¨à¥à¤¯à¤µà¤¾à¤¦ à¤¬à¤¾à¤¯'],
+    hi: ['बंद करो', 'बाय', 'बस', 'ठीक है बस', 'धन्यवाद बाय'],
     hinglish: ['bas', 'bye kar', 'done hai', 'khatam', 'thats it'],
 }
 
 const YES_SIGNALS = ['yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'haan', 'ji haan', 'ji', 'bilkul', 'confirm', 'theek hai', 'correct', 'right', 'perfect', 'done', 'go ahead', 'place order', 'order karo', 'order kar do']
 const NO_SIGNALS = ['no', 'nope', 'nahi', 'na', 'naa', 'cancel', 'modify', 'change', 'wait', 'hold on', 'ruko', 'baad mein']
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function detectLanguage(text: string, hint?: string): string {
     if (hint && ['en', 'hi', 'hinglish'].includes(hint)) return hint;
@@ -115,7 +116,7 @@ function isNoSignal(text: string): boolean {
 }
 
 function endCallResponse(lang: string): string {
-    if (lang === 'hi') return 'à¤†à¤ªà¤•à¤¾ à¤¬à¤¹à¥à¤¤ à¤§à¤¨à¥à¤¯à¤µà¤¾à¤¦! à¤œà¤²à¥à¤¦à¥€ à¤®à¤¿à¤²à¥‡à¤‚à¤—à¥‡à¥¤';
+    if (lang === 'hi') return 'आपका बहुत धन्यवाद! जल्दी मिलेंगे।';
     if (lang === 'hinglish') return 'Shukriya! Phir milenge.';
     return 'Thank you for calling Tadka & Twist! Goodbye.';
 }
@@ -367,7 +368,7 @@ async function handleIdentityCollection(
     return buildOutput(session, responseText, 'IDENTITY', 'IDENTITY_COLLECTION', null, null);
 }
 
-// â”€â”€ State: AWAITING_CONFIRMATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── State: AWAITING_CONFIRMATION ───────────────────────────────────────────────
 
 async function handleConfirmationResponse(
     session: SessionContext,
@@ -380,19 +381,19 @@ async function handleConfirmationResponse(
     }
 
     if (isNoSignal(transcript)) {
-        // Customer wants to modify â€” go back to collecting
+        // Customer wants to modify — go back to collecting
         void updateSession(session.sessionId, { awaitingOrderConfirmation: false, state: 'COLLECTING_ORDER' })
             .catch((err) => log.warn('State update failed', { error: (err as Error).message }));
 
         const responseText =
-            lang === 'hi' ? 'à¤ à¥€à¤• à¤¹à¥ˆ! à¤†à¤ª à¤•à¥à¤¯à¤¾ à¤¬à¤¦à¤²à¤¨à¤¾ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚?'
+            lang === 'hi' ? 'ठीक है! आप क्या बदलना चाहते हैं?'
                 : lang === 'hinglish' ? 'Theek hai! Kya change karna hai?'
                     : 'No problem! What would you like to change?';
 
         return buildOutput(session, responseText, 'CANCEL_CONFIRM', 'COLLECTING_ORDER', null, null);
     }
 
-    // Ambiguous â€” reprompt
+    // Ambiguous — reprompt
     const responseText = getConfirmationReprompt(lang);
     return buildOutput(session, responseText, 'CONFIRM_REPROMPT', 'AWAITING_CONFIRMATION', null, null);
 }
@@ -419,11 +420,11 @@ async function handleFinalConfirmation(session: SessionContext): Promise<BrainOu
         let responseText: string;
 
         if (lang === 'hi') {
-            responseText = `à¤¬à¤¢à¤¼à¤¿à¤¯à¤¾! à¤†à¤ªà¤•à¤¾ à¤‘à¤°à¥à¤¡à¤° à¤•à¤¨à¥à¤«à¤°à¥à¤® à¤¹à¥‹ à¤—à¤¯à¤¾à¥¤ ${discount ? `â‚¹${discountAmt} à¤•à¥€ à¤›à¥‚à¤Ÿ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤†à¤ªà¤•à¤¾ à¤•à¥à¤² â‚¹${net.toFixed(0)} à¤¹à¥ˆà¥¤ ` : ''}à¤§à¤¨à¥à¤¯à¤µà¤¾à¤¦!`;
+            responseText = `बढ़िया! आपका ऑर्डर कन्फर्म हो गया। ${discount ? `₹${discountAmt} की छूट के साथ आपका कुल ₹${net.toFixed(0)} है। ` : ''}धन्यवाद!`;
         } else if (lang === 'hinglish') {
-            responseText = `Zabardast! Order confirm ho gaya. ${discount ? `â‚¹${discountAmt} discount ke saath aapka total â‚¹${net.toFixed(0)} hai. ` : ''}Shukriya!`;
+            responseText = `Zabardast! Order confirm ho gaya. ${discount ? `₹${discountAmt} discount ke saath aapka total ₹${net.toFixed(0)} hai. ` : ''}Shukriya!`;
         } else {
-            responseText = `Your order is confirmed! ${discount ? `You saved â‚¹${discountAmt} â€” final total â‚¹${net.toFixed(0)}. ` : `Total: â‚¹${session.cartTotal.toFixed(0)}. `}Thank you for ordering from Tadka & Twist!`;
+            responseText = `Your order is confirmed! ${discount ? `You saved ₹${discountAmt} — final total ₹${net.toFixed(0)}. ` : `Total: ₹${session.cartTotal.toFixed(0)}. `}Thank you for ordering from Tadka & Twist!`;
         }
 
         void updateSession(session.sessionId, {
@@ -444,14 +445,14 @@ async function handleFinalConfirmation(session: SessionContext): Promise<BrainOu
 
     // Order save failed
     const errText =
-        lang === 'hi' ? 'à¤®à¤¾à¤«à¤¼ à¤•à¤°à¥‡à¤‚, à¤•à¥à¤› à¤¤à¤•à¤¨à¥€à¤•à¥€ à¤¸à¤®à¤¸à¥à¤¯à¤¾ à¤† à¤—à¤ˆà¥¤ à¤•à¥ƒà¤ªà¤¯à¤¾ à¤¦à¥‹à¤¬à¤¾à¤°à¤¾ à¤•à¥‹à¤¶à¤¿à¤¶ à¤•à¤°à¥‡à¤‚à¥¤'
+        lang === 'hi' ? 'माफ़ करें, कुछ तकनीकी समस्या आ गई। कृपया दोबारा कोशिश करें।'
             : lang === 'hinglish' ? 'Sorry, kuch technical problem hai. Please try again.'
                 : 'Sorry, there was a technical issue placing your order. Please try again.';
 
     return buildOutput(session, errText, 'CONFIRM_FAIL', 'COLLECTING_ORDER', null, null);
 }
 
-// â”€â”€ State: AWAITING_CUISINE_CHOICE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── State: AWAITING_CUISINE_CHOICE ────────────────────────────────────────────
 
 async function handleCuisineChoiceResponse(
     session: SessionContext,
@@ -468,19 +469,19 @@ async function handleCuisineChoiceResponse(
         const lang = session.language;
         const responseText =
             items.length > 0
-                ? lang === 'hi' ? `à¤¬à¤¢à¤¼à¤¿à¤¯à¤¾! ${items.join(', ')} à¤œà¥‹à¤¡à¤¼à¤¨à¥‡ à¤•à¥€ à¤•à¥‹à¤¶à¤¿à¤¶ à¤•à¤° à¤°à¤¹à¤¾ à¤¹à¥‚à¤à¥¤ à¤°à¥à¤•à¤¿à¤à¥¤`
+                ? lang === 'hi' ? `बढ़िया! ${items.join(', ')} जोड़ने की कोशिश कर रहा हूँ। रुकिए।`
                     : lang === 'hinglish' ? `Theek hai! ${items.join(', ')} add karta hoon. Ek second.`
-                        : `Great! Let me add your usual â€” ${items.join(', ')} â€” to your order.`
-                : lang === 'hi' ? 'à¤œà¤¼à¤°à¥‚à¤°! à¤•à¥à¤¯à¤¾ à¤‘à¤°à¥à¤¡à¤° à¤•à¤°à¤¨à¤¾ à¤¹à¥ˆ à¤¬à¤¤à¤¾à¤‡à¤à¥¤'
+                        : `Great! Let me add your usual — ${items.join(', ')} — to your order.`
+                : lang === 'hi' ? 'ज़रूर! क्या ऑर्डर करना है बताइए।'
                     : 'Sure! Go ahead and tell me what you\'d like.';
 
-        // We can't auto-add from voice since we don't have itemIds here â€” ask LLM to handle
+        // We can't auto-add from voice since we don't have itemIds here — ask LLM to handle
         return buildOutput(session, responseText, 'CUISINE_YES', 'COLLECTING_ORDER', null, null);
     }
 
-    // Customer declined usual â€” continue normally
+    // Customer declined usual — continue normally
     const responseText =
-        lang === 'hi' ? 'à¤ à¥€à¤• à¤¹à¥ˆ! à¤†à¤œ à¤•à¥à¤¯à¤¾ à¤‘à¤°à¥à¤¡à¤° à¤•à¤°à¤¨à¤¾ à¤¹à¥ˆ?'
+        lang === 'hi' ? 'ठीक है! आज क्या ऑर्डर करना है?'
             : lang === 'hinglish' ? 'Theek hai! Aaj kya lena hai?'
                 : 'No problem! What would you like to order today?';
 
@@ -548,6 +549,7 @@ async function routeIntent(
                     modifiers: parsed.modifiers,
                     lineTotal: parsed.qty * (parsed.unitPrice + parsed.modifierDelta),
                     isUpsold: false,
+                    notes: parsed.notes || undefined,
                 };
                 updatedCart = addToCart(updatedCart, newItem);
 
@@ -584,6 +586,20 @@ async function routeIntent(
         case 'ORDER_REMOVE': {
             if (parsed.itemId !== null) {
                 updatedCart = removeFromCart(updatedCart, parsed.itemId as number);
+            } else if (parsed.itemName) {
+                // Fallback: LLM couldn't resolve the numeric itemId — match by name
+                const needle = parsed.itemName.toLowerCase();
+                const match = updatedCart.find(
+                    (i) =>
+                        i.name.toLowerCase().includes(needle) ||
+                        needle.includes(i.name.toLowerCase())
+                );
+                if (match) {
+                    log.info('ORDER_REMOVE: name-based fallback matched', { itemName: match.name, itemId: match.itemId });
+                    updatedCart = removeFromCart(updatedCart, match.itemId);
+                } else {
+                    log.warn('ORDER_REMOVE: could not resolve itemId or name', { itemName: parsed.itemName });
+                }
             }
             break;
         }
@@ -598,7 +614,7 @@ async function routeIntent(
         case 'CONFIRM_ORDER': {
             if (updatedCart.length === 0) {
                 responseText = lang === 'hi'
-                    ? 'à¤†à¤ªà¤•à¤¾ à¤‘à¤°à¥à¤¡à¤° à¤…à¤­à¥€ à¤–à¤¾à¤²à¥€ à¤¹à¥ˆà¥¤ à¤ªà¤¹à¤²à¥‡ à¤•à¥à¤› à¤œà¥‹à¤¡à¤¼à¥‡à¤‚à¥¤'
+                    ? 'आपका ऑर्डर अभी खाली है। पहले कुछ जोड़ें।'
                     : lang === 'hinglish'
                         ? 'Order toh abhi empty hai. Pehle kuch add karo.'
                         : 'Your order is empty. Please add some items first.';
@@ -615,7 +631,7 @@ async function routeIntent(
 
             let confirmText: string;
             if (lang === 'hi') {
-                confirmText = `à¤†à¤ªà¤•à¤¾ à¤‘à¤°à¥à¤¡à¤°:\n${summary}\n\nà¤•à¥à¤¯à¤¾ à¤†à¤ª à¤•à¤¨à¥à¤«à¤°à¥à¤® à¤•à¤°à¤¨à¤¾ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚?`;
+                confirmText = `आपका ऑर्डर:\n${summary}\n\nक्या आप कन्फर्म करना चाहते हैं?`;
             } else if (lang === 'hinglish') {
                 confirmText = `Aapka order:\n${summary}\n\nConfirm karna hai?`;
             } else {
@@ -635,14 +651,14 @@ async function routeIntent(
             updatedCart = [];
             nextState = 'COLLECTING_ORDER';
             responseText = lang === 'hi'
-                ? 'à¤†à¤ªà¤•à¤¾ à¤‘à¤°à¥à¤¡à¤° à¤°à¤¦à¥à¤¦ à¤¹à¥‹ à¤—à¤¯à¤¾à¥¤ à¤¨à¤¯à¤¾ à¤‘à¤°à¥à¤¡à¤° à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚à¥¤'
+                ? 'आपका ऑर्डर रद्द हो गया। नया ऑर्डर शुरू करें।'
                 : lang === 'hinglish'
                     ? 'Order cancel ho gaya. Naya order shuru karo.'
                     : 'Order cancelled. Feel free to start a new order!';
             break;
         }
 
-        // QUERY and SMALLTALK â€” responseText already contains the spoken response (plain text)
+        // QUERY and SMALLTALK — responseText already contains the spoken response (plain text)
         default:
             nextState = session.state === 'COLLECTING_ORDER' ? 'COLLECTING_ORDER' : session.state;
             break;
@@ -651,6 +667,14 @@ async function routeIntent(
     const finalTotal = computeCartTotal(updatedCart);
     const discount = computeOfferDiscount(finalTotal);
     const discountAmt = discount?.discountAmt ?? 0;
+
+    // ── Merge offer-nudge into spoken response ────────────────────────────────
+    // offerNudgeLine is only set for ORDER_ADD when cart enters a nudge window.
+    // Append it to responseText so TTS actually speaks it; the separate
+    // BrainOutput.offerNudge field is kept for any UI consumers.
+    if (offerNudgeLine) {
+        responseText = responseText + ' ' + offerNudgeLine;
+    }
 
     return buildOutput(
         session, responseText, intent, nextState,
@@ -666,9 +690,125 @@ async function routeIntent(
     );
 }
 
-// â”€â”€ Main entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main entry point ──────────────────────────────────────────────────────────
 
 // ── Intent routing sets ──────────────────────────────────────────────────────
+
+// ── Discount-nudge helpers ────────────────────────────────────────────────────
+
+/**
+ * Find available item (not in cart) whose price is closest to targetPrice.
+ * Prefers items at or below gap+₹60 so one add bridges the threshold.
+ */
+function findItemNearPrice(
+    targetPrice: number,
+    session: SessionContext
+): { itemId: number; name: string; price: number } | null {
+    const cartItemIds = new Set(session.cart.map((i) => i.itemId));
+    const menuItems = getByType('menu_item');
+    const candidates = menuItems
+        .filter(
+            (d) =>
+                d.metadata.isAvailable !== false &&
+                typeof d.metadata.sellingPrice === 'number' &&
+                !cartItemIds.has(d.metadata.itemId as number)
+        )
+        .map((d) => ({
+            itemId: d.metadata.itemId as number,
+            name: d.metadata.name as string,
+            price: d.metadata.sellingPrice as number,
+            diff: Math.abs((d.metadata.sellingPrice as number) - targetPrice),
+        }))
+        .sort((a, b) => a.diff - b.diff);
+    const withinGap = candidates.filter((c) => c.price <= targetPrice + 60);
+    return withinGap[0] ?? candidates[0] ?? null;
+}
+
+function buildConfirmNudgeText(
+    gap: number,
+    discountPct: number,
+    suggestion: { name: string; price: number } | null,
+    lang: string
+): string {
+    const suggPart = suggestion
+        ? lang === 'hi'
+            ? `— जैसे ${suggestion.name} (₹${suggestion.price})`
+            : lang === 'hinglish'
+                ? `— jaise ${suggestion.name} (₹${suggestion.price})`
+                : `— like ${suggestion.name} for ₹${suggestion.price}`
+        : '';
+    if (lang === 'hi') {
+        return `रुकिए! बस ₹${gap} और जोड़िए ${suggPart} और ${discountPct}% की छूट पाइए! या "नहीं धन्यवाद" बोलिए।`;
+    }
+    if (lang === 'hinglish') {
+        return `Ek second! Sirf ₹${gap} aur add karo ${suggPart} aur ${discountPct}% discount lo! Ya "no thanks" bolo.`;
+    }
+    return `Hold on! Add just ₹${gap} more ${suggPart} and get ${discountPct}% off your whole order! Say "no thanks" to confirm as-is.`;
+}
+
+/**
+ * Handle user's reply to the confirm-time discount nudge.
+ *  Decline / re-confirm  → confirm with existing cart
+ *  "Yes"                 → add the pre-suggested item, then confirm
+ *  Named item            → ORDER_ADD via routeIntent, then auto-confirm
+ */
+async function handleDiscountNudgeResponse(
+    session: SessionContext,
+    transcript: string
+): Promise<BrainOutput> {
+    applyToCache(session.sessionId, { awaitingDiscountNudge: false });
+    session.awaitingDiscountNudge = false;
+
+    const t = transcript.toLowerCase().trim();
+
+    const isDecline =
+        isNoSignal(transcript) ||
+        /no\s*thank|nahi|skip|just\s*confirm|as[\s-]?is|theek\s*hai\s*confirm|confirm\s*kar\s*do/i.test(t);
+    if (isDecline) {
+        return handleFinalConfirmation(session);
+    }
+
+    if (isYesSignal(transcript) && session.discountNudgeSuggestedItemId !== null) {
+        const menuItems = getByType('menu_item');
+        const doc = menuItems.find((d) => d.metadata.itemId === session.discountNudgeSuggestedItemId);
+        if (doc) {
+            const price = (doc.metadata.sellingPrice as number) ?? 0;
+            const newItem: CartItem = {
+                itemId: session.discountNudgeSuggestedItemId as number,
+                name: (doc.metadata.name as string) ?? 'Item',
+                qty: 1,
+                unitPrice: price,
+                foodCost: (doc.metadata.foodCost as number) ?? 0,
+                modifiers: [],
+                lineTotal: price,
+                isUpsold: true,
+            };
+            const newCart = addToCart(session.cart, newItem);
+            const newTotal = computeCartTotal(newCart);
+            applyToCache(session.sessionId, { cart: newCart, cartTotal: newTotal });
+            session = { ...session, cart: newCart, cartTotal: newTotal };
+        }
+        return handleFinalConfirmation(session);
+    }
+
+    // User named a specific item → ORDER_ADD then auto-confirm
+    const history = await buildLLMHistory(session.sessionId, 8);
+    const addOut = await routeIntent(session, transcript, 'ORDER_ADD', {}, history);
+
+    if (addOut.updatedCart.length > session.cart.length || addOut.cartTotal > session.cartTotal) {
+        applyToCache(session.sessionId, {
+            cart: addOut.updatedCart,
+            cartTotal: addOut.cartTotal,
+            appliedDiscount: addOut.appliedDiscount,
+            netTotal: addOut.netTotal,
+            appliedOfferId: addOut.appliedOfferId,
+        });
+        session = { ...session, cart: addOut.updatedCart, cartTotal: addOut.cartTotal };
+    }
+
+    return handleFinalConfirmation(session);
+}
+
 // CART_ONLY_INTENTS: update cache + async DB; no blocking writes
 const CART_ONLY_INTENTS = new Set(['ORDER_ADD', 'ORDER_REMOVE', 'ORDER_MODIFY']);
 // DB_WRITE_INTENTS: confirm/cancel/end — require async session state flush
@@ -721,9 +861,9 @@ export async function processTurn(input: BrainInput): Promise<BrainOutput> {
             const summary = buildCartSummary(session.cart, total, discAmt, net, lang);
 
             const responseText =
-                lang === 'hi' ? `à¤°à¥à¤•à¤¿à¤! à¤†à¤ªà¤•à¥‡ à¤‘à¤°à¥à¤¡à¤° à¤®à¥‡à¤‚ à¤¹à¥ˆ:\n${summary}\nà¤•à¥à¤¯à¤¾ à¤•à¤¨à¥à¤«à¤°à¥à¤® à¤•à¤°à¥‚à¤?`
+                lang === 'hi' ? `रुकिए! आपके ऑर्डर में है:\n${summary}\nक्या कन्फर्म करूँ?`
                     : lang === 'hinglish' ? `Ek second! Aapke cart mein hai:\n${summary}\nConfirm karo?`
-                        : `Wait â€” you have items in your cart:\n${summary}\nShall I confirm your order before you go?`;
+                        : `Wait — you have items in your cart:\n${summary}\nShall I confirm your order before you go?`;
 
             void updateSession(sessionId, { awaitingOrderConfirmation: true, state: 'AWAITING_CONFIRMATION' })
                 .catch(() => undefined);
@@ -758,6 +898,15 @@ export async function processTurn(input: BrainInput): Promise<BrainOutput> {
     // 7. Awaiting cuisine choice (returning customer "your usual?")
     if (session.awaitingCuisineChoice) {
         const out = await handleCuisineChoiceResponse(session, transcript);
+        void persistAssistantTurn(sessionId, out, startMs);
+        return out;
+    }
+
+    // 7b. Awaiting user response to confirm-time discount nudge
+    if (session.awaitingDiscountNudge) {
+        const out = await handleDiscountNudgeResponse(session, transcript);
+        void addTurn(sessionId, { role: 'user', content: transcript, metadata: { isVoiceCall, startMs } })
+            .catch(() => undefined);
         void persistAssistantTurn(sessionId, out, startMs);
         return out;
     }
@@ -837,6 +986,36 @@ export async function processTurn(input: BrainInput): Promise<BrainOutput> {
             void persistAssistantTurn(sessionId, out, startMs);
             return out;
         }
+
+        // ── Confirm-time discount nudge (shown once per call, never repeated) ──────
+        if (!session.discountNudgeSent) {
+            const nudgePayload = getOfferNudge(session.cartTotal, lang);
+            if (nudgePayload) {
+                const suggestion = findItemNearPrice(nudgePayload.amountNeeded, session);
+                const responseText = buildConfirmNudgeText(
+                    nudgePayload.amountNeeded,
+                    nudgePayload.discountPct,
+                    suggestion,
+                    lang
+                );
+                applyToCache(sessionId, {
+                    awaitingDiscountNudge: true,
+                    discountNudgeSent: true,
+                    discountNudgeSuggestedItemId: suggestion?.itemId ?? null,
+                });
+                const out = buildOutput(session, responseText, 'DISCOUNT_NUDGE', 'COLLECTING_ORDER', null, null);
+                void addTurn(sessionId, { role: 'user', content: transcript, metadata: { isVoiceCall, startMs } })
+                    .catch(() => undefined);
+                void persistAssistantTurn(sessionId, out, startMs);
+                log.info('CONFIRM_ORDER: discount nudge shown', {
+                    sessionId, cartTotal: session.cartTotal,
+                    gap: nudgePayload.amountNeeded, discountPct: nudgePayload.discountPct,
+                    suggestion: suggestion?.name ?? 'none',
+                });
+                return out;
+            }
+        }
+
         const out = await handleFinalConfirmation(session);
         void addTurn(sessionId, { role: 'user', content: transcript, metadata: { isVoiceCall, startMs } })
             .catch(() => undefined);
@@ -930,7 +1109,7 @@ export async function processTurn(input: BrainInput): Promise<BrainOutput> {
     return out;
 }
 
-// â”€â”€ Fire-and-forget assistant turn save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Fire-and-forget assistant turn save ───────────────────────────────────────
 
 function persistAssistantTurn(
     sessionId: string,

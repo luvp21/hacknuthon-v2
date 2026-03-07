@@ -561,7 +561,8 @@ export function buildCartSummary(
             item.modifiers.length > 0
                 ? ` (${item.modifiers.map((m) => m.label).join(', ')})`
                 : ''
-        return `${item.qty}x ${item.name}${modLine} — ₹${item.lineTotal.toFixed(0)}`
+        const noteLine = item.notes ? ` [Note: ${item.notes}]` : ''
+        return `${item.qty}x ${item.name}${modLine}${noteLine} — ₹${item.lineTotal.toFixed(0)}`
     })
 
     const summaryLines = [...lines, `Subtotal: ₹${total.toFixed(0)}`]
@@ -624,30 +625,48 @@ Respond with ONLY valid JSON:
   "qty": <number>,
   "modifiers": [{"type": <string>, "label": <string>, "priceDelta": <number>}],
   "modifierDelta": <number>,
+  "notes": "<any special instruction the customer mentioned for this item, e.g. 'extra spicy', 'no onion', 'less oil', or null if none>",
   "responseText": "<spoken confirmation or clarification question in ${lang}>",
   "suggestions": ["<if item not found, list 1-2 similar items available>"]
 }`
 
-        case 'ORDER_REMOVE':
+        case 'ORDER_REMOVE': {
+            const cartWithIds = session.cart.length
+                ? session.cart
+                    .map((i: CartItem) => `  - itemId: ${i.itemId} | ${i.qty}x ${i.name} — ₹${i.lineTotal.toFixed(0)}`)
+                    .join('\n')
+                : '  (empty)'
             return `${baseContext}
 
-The customer wants to remove an item from their cart (shown above).
+CART ITEMS WITH IDs (you MUST use these exact numeric itemIds in your response):
+${cartWithIds}
+
+The customer wants to remove an item from their cart. Look at the CART ITEMS WITH IDs above to find the correct itemId.
 
 Respond with ONLY valid JSON:
 {
-  "itemId": <number | null>,
+  "itemId": <exact numeric itemId from the cart list above | null>,
   "itemName": <string | null>,
   "responseText": "<spoken confirmation that item was removed, in ${lang}>"
 }`
+        }
 
-        case 'ORDER_MODIFY':
+        case 'ORDER_MODIFY': {
+            const cartWithIds = session.cart.length
+                ? session.cart
+                    .map((i: CartItem) => `  - itemId: ${i.itemId} | ${i.qty}x ${i.name} — ₹${i.lineTotal.toFixed(0)}`)
+                    .join('\n')
+                : '  (empty)'
             return `${baseContext}
 
-The customer wants to modify quantity or modifiers of a cart item.
+CART ITEMS WITH IDs (you MUST use these exact numeric itemIds in your response):
+${cartWithIds}
+
+The customer wants to modify quantity or modifiers of a cart item. Look at the CART ITEMS WITH IDs above to find the correct itemId.
 
 Respond with ONLY valid JSON:
 {
-  "itemId": <number | null>,
+  "itemId": <exact numeric itemId from the cart list above | null>,
   "itemName": <string | null>,
   "modifications": {
     "newQty": <number | null>,
@@ -655,6 +674,7 @@ Respond with ONLY valid JSON:
   },
   "responseText": "<spoken confirmation in ${lang}>"
 }`
+        }
 
         case 'QUERY_MENU':
         case 'QUERY_PRICE':

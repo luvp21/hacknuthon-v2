@@ -8,13 +8,13 @@
  *
  * Example turn block:
  *
- *   [12:03:45] 👤 USER : add two tiramisus
- *              🎯 INTENT : ORDER_ADD               150ms  (Groq)
- *              🔍 RAG    : menu retrieval           523ms
- *              💡 LLM    : Gemini response         2467ms
- *              🧠 BRAIN  : total processTurn       3140ms
- *              🛒 CART   : Tiramisu x2 ₹500  (−₹50 off)  →  ₹450
- *   [12:03:48] 🤖 BOT  : Adding two Tiramisus...
+ *   [12:03:45] USER  : add two tiramisus
+ *              INTENT : ORDER_ADD               150ms  (Groq)
+ *              RAG    : menu retrieval           523ms
+ *              LLM    : Gemini response         2467ms
+ *              BRAIN  : total processTurn       3140ms
+ *              CART   : Tiramisu x2 ₹500  (−₹50 off)  →  ₹450
+ *   [12:03:48] BOT   : Adding two Tiramisus...
  */
 
 import * as fs from 'fs';
@@ -74,12 +74,12 @@ function getOrCreate(sessionId: string): LogSession {
 
     const startedAt = now.toISOString().replace('T', ' ').slice(0, 19);
     const header = [
-        '═'.repeat(66),
-        '  🧠 Petpooja Brain  —  Turn-by-Turn Call Log',
-        '═'.repeat(66),
-        `📞  Session     : ${sessionId}`,
-        `🕐  Started     : ${startedAt}`,
-        '─'.repeat(66),
+        '='.repeat(66),
+        '  Petpooja Brain  --  Turn-by-Turn Call Log',
+        '='.repeat(66),
+        `Session     : ${sessionId}`,
+        `Started     : ${startedAt}`,
+        '-'.repeat(66),
         '',
     ].join('\n');
 
@@ -152,13 +152,13 @@ export function logTurn(sessionId: string, data: TurnLogData): void {
 
         // ── Block ────────────────────────────────────────────────────────────
         const block = [
-            `[${ts}] 👤 USER : ${data.userText}`,
-            `           🎯 INTENT : ${intentRow}`,
-            `           🔍 RAG    : ${ragRow}`,
-            `           💡 LLM    : ${llmRow}`,
-            `           🧠 BRAIN  : ${brainRow}`,
-            `           🛒 CART   : ${cartLine}`,
-            `[${ts}] 🤖 BOT  : ${data.botText}`,
+            `[${ts}] USER  : ${data.userText}`,
+            `           INTENT : ${intentRow}`,
+            `           RAG    : ${ragRow}`,
+            `           LLM    : ${llmRow}`,
+            `           BRAIN  : ${brainRow}`,
+            `           CART   : ${cartLine}`,
+            `[${ts}] BOT   : ${data.botText}`,
             '',
         ].join('\n');
 
@@ -198,13 +198,13 @@ export function endSessionLog(
 
         const endedAt = now.toISOString().replace('T', ' ').slice(0, 19);
         const footer = [
-            '─'.repeat(66),
-            `📦  Items Ordered  : ${itemsSummary}${discNote}`,
-            `⏱️   Avg Turn Time  : ${(avgMs / 1000).toFixed(1)}s`,
-            `🔢  Total Turns    : ${sess.turnCount}`,
-            `⏳  Call Duration  : ${durSecs}s`,
-            `🕐  Ended          : ${endedAt}`,
-            '═'.repeat(66),
+            '-'.repeat(66),
+            `Items Ordered  : ${itemsSummary}${discNote}`,
+            `Avg Turn Time  : ${(avgMs / 1000).toFixed(1)}s`,
+            `Total Turns    : ${sess.turnCount}`,
+            `Call Duration  : ${durSecs}s`,
+            `Ended          : ${endedAt}`,
+            '='.repeat(66),
             '',
         ].join('\n');
 

@@ -290,6 +290,13 @@
             white-space: nowrap;
         }
 
+        .item-note {
+            font-size: 11px;
+            color: var(--yellow);
+            padding: 1px 0 4px 30px;
+            font-style: italic;
+        }
+
         .card-total {
             display: flex;
             justify-content: space-between;
@@ -494,13 +501,16 @@
             const kotLabel = order.kot_number ? `KOT #${order.kot_number}` : `#${order.id.slice(0, 8).toUpperCase()}`;
             const phone = order.customer_phone ? order.customer_phone.replace(/(\+\d{2})(\d{5})(\d{5})/, '$1 $2 $3') : '';
 
-            const rows = (order.items || []).map(item =>
-                `<tr>
+            const rows = (order.items || []).map(item => {
+                const noteRow = item.notes
+                    ? `<tr><td></td><td colspan="2" class="item-note">⚠ ${item.notes}</td></tr>`
+                    : '';
+                return `<tr>
         <td class="qty">${item.quantity}×</td>
         <td class="name">${item.menu_item_name}</td>
         <td class="price">₹${item.total_price}</td>
-      </tr>`
-            ).join('');
+      </tr>${noteRow}`;
+            }).join('');
 
             const disc = order.subtotal - order.total_amount + order.tax_amount;  // rough
             const total = order.total_amount;
@@ -572,12 +582,17 @@
             }
 
             // Preserve existing cards to avoid full re-render flicker;
-            // rebuild only if IDs differ
+            // rebuild if IDs differ OR if any item's notes content changed
             const existingIds = [...body.querySelectorAll('.card')].map(c => c.id.replace('card-', ''));
             const newIds = orders.map(o => o.id);
-            const same = existingIds.length === newIds.length && existingIds.every((id, i) => id === newIds[i]);
+            const newNoteSig = orders.map(o => (o.items || []).map(i => i.notes || '').join('|')).join(';');
+            const prevNoteSig = body.dataset.noteSig || '';
+            const same = existingIds.length === newIds.length
+                && existingIds.every((id, i) => id === newIds[i])
+                && prevNoteSig === newNoteSig;
             if (!same) {
                 body.innerHTML = orders.map(o => buildCard(o, colClass)).join('');
+                body.dataset.noteSig = newNoteSig;
             }
         }
 

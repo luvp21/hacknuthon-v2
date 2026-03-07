@@ -52,6 +52,15 @@ MIN_UTTERANCE_AVG_RMS = 200
 # We use a dynamic mute calculated from actual audio length sent.
 BOT_BASE_MUTE_FRAMES = 30   # minimum mute after any TTS send (~600ms)
 
+# ── Barge-in (interrupt) settings ────────────────────────────────────────────
+# After sending TTS we protect the first N frames as a pure echo dead-zone.
+# After that zone, sustained high-energy inbound audio is treated as the user
+# speaking over the bot.  We send a Twilio <clear> event to cancel buffered
+# playback and immediately start listening to the caller.
+BARGE_IN_ECHO_SHIELD_FRAMES = 15   # 300ms dead zone — absorbs initial echo burst
+BARGE_IN_RMS_THRESHOLD      = 1400 # energy that signals real speech (vs echo/noise)
+BARGE_IN_CONFIRM_FRAMES     = 5    # 5 consecutive loud frames (100ms) → confirmed
+
 # Protect WebSocket sends from concurrent threads
 _ws_lock = threading.Lock()
 
@@ -72,14 +81,25 @@ def _greeting_wrapper(
     ws, stream_sid: str, pipeline_busy: threading.Event,
     text: str, language: str,
     mute_until_frame: list[int], frame_count: list[int],
-    call_sid: str
+    tts_sent_frame: list[int], call_sid: str
 ) -> None:
     """Wrap the initial greeting TTS and hold pipeline_busy for its full duration
     so no STT pipeline can fire from echo audio while the bot is still talking."""
     try:
-        _send_tts(ws, stream_sid, text, language, mute_until_frame, frame_count, call_sid)
+        _send_tts(ws, stream_sid, text, language, mute_until_frame, frame_count, call_sid, tts_sent_frame)
     finally:
         pipeline_busy.clear()  # allow user input only after greeting is fully sent
+
+
+def _send_clear(ws, stream_sid: str) -> None:
+    """Send a Twilio 'clear' event to cancel any buffered audio being played to caller."""
+    msg = json.dumps({"event": "clear", "streamSid": stream_sid})
+    with _ws_lock:
+        try:
+            ws.send(msg)
+            logger.info("[WS] CLEAR sent — bot speech interrupted by user barge-in")
+        except Exception as exc:
+            logger.warning("[WS] Failed to send CLEAR: %s", exc)
 
 
 def _sanitize_response(text: str, language: str) -> str:
@@ -139,6 +159,9 @@ def handle_media_stream(ws) -> None:
     frame_count: list[int] = [0]        # total inbound frames seen
     in_mute_window: list[bool] = [False]  # True once we enter a mute window; used to
                                           # flush stale buffer exactly once per window
+    tts_sent_frame: list[int] = [0]     # frame index when last TTS was dispatched
+    barge_in_count: list[int] = [0]     # consecutive high-energy frames in mute window
+    barge_in_buffer: list = []          # PCM chunks accumulated during barge-in detection
 
     logger.info("[WS] New WebSocket connection opened.")
 
@@ -186,7 +209,7 @@ def handle_media_stream(ws) -> None:
                     target=_greeting_wrapper,
                     args=(ws, stream_sid, pipeline_busy,
                           "Welcome to Tadka & Twist! Could I get your name?",
-                          "en", mute_until_frame, frame_count, call_sid),
+                          "en", mute_until_frame, frame_count, tts_sent_frame, call_sid),
                     daemon=True,
                 ).start()
 
@@ -200,20 +223,60 @@ def handle_media_stream(ws) -> None:
                 frame_count[0] += 1
                 raw_mulaw = base64.b64decode(payload)
 
-                # ── MUTE WINDOW: bot is speaking — discard all inbound audio —─
-                # No barge-in. Bot must finish speaking before we listen.
-                # First frame inside this window: flush any audio that
-                # accumulated while the LLM was thinking (prevents stale
-                # second utterance from firing once the mute lifts).
+                # ── MUTE WINDOW: bot is speaking ───────────────────────────
+                # First frame entering mute window: flush any stale audio.
+                # After the echo shield zone, check for barge-in: if the caller
+                # speaks loudly enough for long enough we interrupt the bot.
                 if frame_count[0] <= mute_until_frame[0]:
                     if not in_mute_window[0]:
                         in_mute_window[0] = True
                         audio_buffer = []
+                        barge_in_buffer = []
+                        barge_in_count[0] = 0
                         silence_count = 0
-                    continue  # unconditionally discard — no barge-in
+
+                    # ── Echo shield: discard the first N frames unconditionally ──
+                    # This absorbs the immediate TTS echo before we start listening.
+                    if frame_count[0] <= tts_sent_frame[0] + BARGE_IN_ECHO_SHIELD_FRAMES:
+                        continue
+
+                    # ── Barge-in detection ────────────────────────────────────
+                    rms = _rms_mulaw(raw_mulaw)
+                    if rms > BARGE_IN_RMS_THRESHOLD:
+                        barge_in_count[0] += 1
+                        barge_in_buffer.append(mulaw_b64_to_pcm16k(payload))
+
+                        if barge_in_count[0] >= BARGE_IN_CONFIRM_FRAMES:
+                            # ── BARGE-IN CONFIRMED ────────────────────────────
+                            logger.info(
+                                "[WS] 🛑 Barge-in detected (rms=%d, %d frames) — interrupting",
+                                rms, barge_in_count[0],
+                            )
+                            _send_clear(ws, stream_sid)     # cancel Twilio buffered audio
+                            mute_until_frame[0] = 0         # lift mute window
+                            in_mute_window[0] = False
+                            audio_buffer = list(barge_in_buffer)  # carry forward speech
+                            barge_in_buffer = []
+                            barge_in_count[0] = 0
+                            silence_count = 0
+                            pipeline_busy.clear()           # ensure pipeline is not blocked
+                            # Don't re-decode current frame — it's already in audio_buffer
+                            continue
+                        else:
+                            continue  # accumulating, not yet confirmed
+                    else:
+                        # Energy dropped — decay counter
+                        barge_in_count[0] = max(0, barge_in_count[0] - 1)
+                        if barge_in_count[0] == 0:
+                            barge_in_buffer = []
+                        continue  # still muted
+
                 else:
-                    # Mute window expired — reset flag for next TTS window
-                    in_mute_window[0] = False
+                    # Mute window expired naturally — reset barge-in state
+                    if in_mute_window[0]:
+                        in_mute_window[0] = False
+                    barge_in_count[0] = 0
+                    barge_in_buffer = []
 
                 # VAD
                 if is_silence(raw_mulaw):
@@ -239,7 +302,7 @@ def handle_media_stream(ws) -> None:
                         threading.Thread(
                             target=_process_utterance,
                             args=(ws, stream_sid, call_sid, utterance,
-                                  pipeline_busy, mute_until_frame, frame_count),
+                                  pipeline_busy, mute_until_frame, frame_count, tts_sent_frame),
                             daemon=True,
                         ).start()
                     else:
@@ -284,7 +347,8 @@ def _process_utterance(ws, stream_sid: str, call_sid: str,
                         audio_chunks: list[np.ndarray],
                         done_event: threading.Event,
                         mute_until_frame: list[int],
-                        frame_count: list[int]) -> None:
+                        frame_count: list[int],
+                        tts_sent_frame: list[int] | None = None) -> None:
     """STT → response → TTS pipeline running in background thread."""
     timer = call_timer.get(call_sid)
 
@@ -395,7 +459,7 @@ def _process_utterance(ws, stream_sid: str, call_sid: str,
         # ── Sanitize response before TTS ──────────────────────────────────────
         response_text = _sanitize_response(response_text, language)
         # ── TTS + send ────────────────────────────────────────────────────────
-        _send_tts(ws, stream_sid, response_text, language, mute_until_frame, frame_count, call_sid)
+        _send_tts(ws, stream_sid, response_text, language, mute_until_frame, frame_count, call_sid, tts_sent_frame)
 
     except Exception as exc:
         logger.error("[Pipeline] Error: %s", exc, exc_info=True)
@@ -405,8 +469,9 @@ def _process_utterance(ws, stream_sid: str, call_sid: str,
 
 def _send_tts(ws, stream_sid: str, text: str, language: str,
               mute_until_frame: list[int], frame_count: list[int],
-              call_sid: str = "") -> None:
-    """Synthesise TTS, send to Twilio, and set the mute window."""
+              call_sid: str = "",
+              tts_sent_frame: list[int] | None = None) -> None:
+    """Synthesise TTS, send to Twilio, and set the mute + tts_sent_frame windows."""
     timer = call_timer.get(call_sid) if call_sid else None
 
     if timer:
@@ -434,7 +499,11 @@ def _send_tts(ws, stream_sid: str, text: str, language: str,
     logger.info("[Pipeline] TTS %.1fs audio synthesised in %dms → muting %d frames",
                 audio_secs, tts_ms, mute_frames)
 
-    # Set mute window so all inbound audio during playback is discarded
+    # Set mute window so all inbound audio during playback is discarded.
+    # Also record the frame at which we sent this TTS so the barge-in echo
+    # shield knows exactly when to start listening for real user speech.
+    if tts_sent_frame is not None:
+        tts_sent_frame[0] = frame_count[0]
     mute_until_frame[0] = frame_count[0] + mute_frames
 
     message = json.dumps({
