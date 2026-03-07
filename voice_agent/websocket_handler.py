@@ -61,6 +61,30 @@ BARGE_IN_ECHO_SHIELD_FRAMES = 15   # 300ms dead zone — absorbs initial echo bu
 BARGE_IN_RMS_THRESHOLD      = 1400 # energy that signals real speech (vs echo/noise)
 BARGE_IN_CONFIRM_FRAMES     = 5    # 5 consecutive loud frames (100ms) → confirmed
 
+# ── Filler / acknowledgement phrases ─────────────────────────────────────────
+# Spoken INSTANTLY after STT completes, while the LLM is thinking.
+# Masks the 2–8 s brain latency so the caller never hears dead silence.
+# Pre-warmed into the TTS cache at startup → dispatch adds ~0 ms.
+_FILLERS: dict[str, list[str]] = {
+    "en":       ["Okay...", "Sure...", "Got it...", "One moment...", "Let me check..."],
+    "hi":       ["जी...", "हाँ...", "ठीक है...", "एक पल..."],
+    "hi-en":    ["Okay...", "Haan ji...", "Ji haan...", "Ek second..."],
+    "hinglish": ["Okay...", "Haan...", "Sure...", "Ji..."],
+    "unknown":  ["Okay...", "Sure...", "One moment..."],
+}
+_filler_idx: dict[str, int] = {}   # per-language rotation counter
+
+
+def _get_filler(language: str) -> str:
+    """Return the next filler phrase for *language*, cycling through the bank."""
+    bank = _FILLERS.get(language) or _FILLERS.get("en", [])
+    if not bank:
+        return ""
+    idx = _filler_idx.get(language, 0)
+    _filler_idx[language] = (idx + 1) % len(bank)
+    return bank[idx]
+
+
 # Protect WebSocket sends from concurrent threads
 _ws_lock = threading.Lock()
 
@@ -409,6 +433,12 @@ def _process_utterance(ws, stream_sid: str, call_sid: str,
                        f"✅  {stt_ms}ms  →  {text!r}  (lang={language} conf={confidence:.2f})")
         logger.info("[Pipeline] STT → lang=%s  conf=%.2f  text=%r", language, confidence, text[:80])
 
+        # ── Filler phrase — instant ACK while LLM thinks ──────────────────────
+        # Plays "Okay..." / "Haan..." etc. from pre-warmed cache (~0 ms overhead).
+        # The real response audio is queued right after by Twilio, so the caller
+        # hears no dead silence during the 2–8 s LLM processing window.
+        _send_filler(ws, stream_sid, language, mute_until_frame, frame_count, tts_sent_frame)
+
         # ── Brain/LLM via petpooja /chat ──────────────────────────────────────
         if timer:
             timer.step("🌐", "HTTP", f"POST {CHATBOT_API_URL}  →  session={call_sid}")
@@ -527,3 +557,24 @@ def _send_tts(ws, stream_sid: str, text: str, language: str,
             logger.error("[Pipeline] Failed to send TTS: %s", exc)
             if timer:
                 timer.step("❌", "TWILIO", f"Failed to send audio: {exc}")
+
+
+def _send_filler(
+    ws, stream_sid: str, language: str,
+    mute_until_frame: list[int], frame_count: list[int],
+    tts_sent_frame: list[int],
+) -> None:
+    """Send an instant acknowledgement phrase to mask LLM latency.
+
+    Called immediately after STT completes, BEFORE session.process().
+    Uses the pre-warmed TTS cache so dispatch adds ~0 ms overhead.
+    Twilio queues this audio ahead of the real response, so the caller
+    hears e.g. "Okay..." the moment they stop speaking, then the actual
+    answer follows seamlessly.
+    """
+    phrase = _get_filler(language)
+    if phrase:
+        logger.info("[Pipeline] Filler → %r (lang=%s)", phrase, language)
+        # call_sid="" keeps this out of call timer / call log (it's infra, not a reply)
+        _send_tts(ws, stream_sid, phrase, language,
+                  mute_until_frame, frame_count, "", tts_sent_frame)

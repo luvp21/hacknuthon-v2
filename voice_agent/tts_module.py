@@ -13,6 +13,7 @@ import base64
 import io
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -112,3 +113,33 @@ def synthesize(text: str, language: str = "en") -> str:
     except Exception as exc:
         logger.error("[TTS] Exception: %s", exc)
         return ""
+
+
+# ── Filler phrase pre-warm ────────────────────────────────────────────────────
+def _prewarm_fillers() -> None:
+    """Synthesise all filler phrases into the TTS cache at startup.
+
+    Runs in a background thread so it does not delay server boot.
+    After this completes, every call to synthesize() for a filler phrase
+    returns immediately from cache (no gTTS network round-trip, ~0ms vs 400ms).
+    """
+    filler_banks: dict[str, list[str]] = {
+        "en":       ["Okay...", "Sure...", "Got it...", "One moment...", "Let me check..."],
+        "hi":       ["जी...", "हाँ...", "ठीक है...", "एक पल..."],
+        "hi-en":    ["Okay...", "Haan ji...", "Ji haan...", "Ek second..."],
+        "hinglish": ["Okay...", "Haan...", "Sure...", "Ji..."],
+        "unknown":  ["Okay...", "Sure...", "One moment..."],
+    }
+    count = 0
+    for lang, phrases in filler_banks.items():
+        for text in phrases:
+            try:
+                if synthesize(text, lang):
+                    count += 1
+            except Exception:
+                pass
+    logger.info("[TTS] Filler pre-warm complete: %d entries cached", count)
+
+
+# Kick off pre-warm in a daemon thread — does not block server startup
+threading.Thread(target=_prewarm_fillers, daemon=True, name="tts-prewarm").start()
