@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kitchen Display — KOT</title>
+    <style>
+        :root {
+            --bg: #0f0f13;
+            --surface: #18181f;
+            --surface2: #22222d;
+            --border: #2e2e3d;
+            --accent: #f97316;
+            --green: #22c55e;
+            --green-dk: #16a34a;
+            --blue: #3b82f6;
+            --blue-dk: #2563eb;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --text: #f1f1f5;
+            --muted: #8a8a9a;
+            --radius: 14px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 28px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            font-size: 24px;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .header-sub {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .4
+            }
+        }
+
+        #last-updated {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        #sound-toggle {
+            cursor: pointer;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 5px 12px;
+            font-size: 12px;
+        }
+
+        #sound-toggle:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* ── Kanban board ────────────────────────────────────────────────────── */
+        .board {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            padding: 24px 28px;
+            overflow-y: auto;
+        }
+
+        .column {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .column-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            border-radius: var(--radius) var(--radius) 0 0;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .column-header .col-icon {
+            font-size: 18px;
+            margin-right: 8px;
+        }
+
+        .col-count {
+            background: var(--surface2);
+            border-radius: 20px;
+            padding: 2px 10px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .col-new .column-header {
+            border-top: 3px solid var(--accent);
+            color: var(--accent);
+        }
+
+        .col-kitchen .column-header {
+            border-top: 3px solid var(--blue);
+            color: var(--blue);
+        }
+
+        .col-done .column-header {
+            border-top: 3px solid var(--green);
+            color: var(--green);
+        }
+
+        .column-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* ── KOT Card ────────────────────────────────────────────────────────── */
+        .card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            animation: slideIn .25s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-8px)
+            }
+
+            to {
+                opacity: 1;
+                transform: none
+            }
+        }
+
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+        }
+
+        .kot-badge {
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+        }
+
+        .col-new .kot-badge {
+            color: var(--accent);
+        }
+
+        .col-kitchen .kot-badge {
+            color: var(--blue);
+        }
+
+        .col-done .kot-badge {
+            color: var(--green);
+        }
+
+        .card-time {
+            font-size: 11px;
+            color: var(--muted);
+            text-align: right;
+        }
+
+        .card-elapsed {
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .elapsed-ok {
+            color: var(--green);
+        }
+
+        .elapsed-warn {
+            color: var(--yellow);
+        }
+
+        .elapsed-late {
+            color: var(--red);
+        }
+
+        .card-phone {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        /* Items table */
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .items-table td {
+            padding: 3px 0;
+        }
+
+        .items-table .qty {
+            width: 30px;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .items-table .name {
+            color: var(--text);
+        }
+
+        .items-table .price {
+            text-align: right;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .card-total {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            font-size: 13px;
+        }
+
+        .total-label {
+            color: var(--muted);
+        }
+
+        .total-val {
+            font-weight: 800;
+            font-size: 15px;
+            color: var(--text);
+        }
+
+        /* Action buttons */
+        .card-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 9px 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity .15s, transform .1s;
+        }
+
+        .btn:hover {
+            opacity: .85;
+        }
+
+        .btn:active {
+            transform: scale(.97);
+        }
+
+        .btn:disabled {
+            opacity: .4;
+            cursor: default;
+        }
+
+        .btn-start {
+            background: var(--blue);
+            color: #fff;
+        }
+
+        .btn-complete {
+            background: var(--green);
+            color: #fff;
+        }
+
+        /* Empty state */
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .empty-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        /* New order flash */
+        .flash {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--accent);
+            color: #fff;
+            padding: 12px 22px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 14px;
+            animation: flashIn .3s ease;
+            z-index: 999;
+        }
+
+        @keyframes flashIn {
+            from {
+                opacity: 0;
+                transform: translateY(-12px)
+            }
+
+            to {
+                opacity: 1;
+                transform: none
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="header-left">
+            <div class="logo">🍽️</div>
+            <div>
+                <div class="header-title">Kitchen Display — KOT</div>
+                <div class="header-sub">Auto-refreshes every 5 seconds</div>
+            </div>
+        </div>
+        <div class="status-bar">
+            <span><span class="pulse"></span> Live</span>
+            <span id="last-updated">—</span>
+            <button id="sound-toggle">🔔 Sound ON</button>
+        </div>
+    </header>
+
+    <div class="board">
+        <!-- Column 1: New Orders -->
+        <div class="column col-new">
+            <div class="column-header">
+                <span><span class="col-icon">🔥</span>New Orders</span>
+                <span class="col-count" id="cnt-new">0</span>
+            </div>
+            <div class="column-body" id="col-new"></div>
+        </div>
+
+        <!-- Column 2: In Kitchen -->
+        <div class="column col-kitchen">
+            <div class="column-header">
+                <span><span class="col-icon">👨‍🍳</span>In Kitchen</span>
+                <span class="col-count" id="cnt-kitchen">0</span>
+            </div>
+            <div class="column-body" id="col-kitchen"></div>
+        </div>
+
+        <!-- Column 3: Completed -->
+        <div class="column col-done">
+            <div class="column-header">
+                <span><span class="col-icon">✅</span>Completed</span>
+                <span class="col-count" id="cnt-done">0</span>
+            </div>
+            <div class="column-body" id="col-done"></div>
+        </div>
+    </div>
+
+    <script>
+        // ── Config ────────────────────────────────────────────────────────────────
+        const POLL_MS = 5000;
+        const API_BASE = '/api/kot';
+        let soundEnabled = true;
+        let knownIds = new Set();
+        let audioCtx = null;
+
+        // ── Sound ─────────────────────────────────────────────────────────────────
+        document.getElementById('sound-toggle').addEventListener('click', function () {
+            soundEnabled = !soundEnabled;
+            this.textContent = soundEnabled ? '🔔 Sound ON' : '🔕 Sound OFF';
+        });
+
+        function playNewOrderSound() {
+            if (!soundEnabled) return;
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                [440, 550, 660].forEach((freq, i) => {
+                    const o = audioCtx.createOscillator();
+                    const g = audioCtx.createGain();
+                    o.connect(g); g.connect(audioCtx.destination);
+                    o.frequency.value = freq;
+                    o.type = 'sine';
+                    const t = audioCtx.currentTime + i * 0.15;
+                    g.gain.setValueAtTime(0, t);
+                    g.gain.linearRampToValueAtTime(0.3, t + 0.05);
+                    g.gain.linearRampToValueAtTime(0, t + 0.25);
+                    o.start(t); o.stop(t + 0.3);
+                });
+            } catch (e) { }
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────────
+        function fmtTime(iso) {
+            return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        function elapsed(iso) {
+            const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+            if (secs < 60) return secs + 's ago';
+            if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+            return Math.floor(secs / 3600) + 'h ago';
+        }
+
+        function elapsedClass(iso) {
+            const mins = (Date.now() - new Date(iso).getTime()) / 60000;
+            if (mins < 5) return 'elapsed-ok';
+            if (mins < 15) return 'elapsed-warn';
+            return 'elapsed-late';
+        }
+
+        // ── Build a KOT card ──────────────────────────────────────────────────────
+        function buildCard(order, colClass) {
+            const kotLabel = order.kot_number ? `KOT #${order.kot_number}` : `#${order.id.slice(0, 8).toUpperCase()}`;
+            const phone = order.customer_phone ? order.customer_phone.replace(/(\+\d{2})(\d{5})(\d{5})/, '$1 $2 $3') : '';
+
+            const rows = (order.items || []).map(item =>
+                `<tr>
+        <td class="qty">${item.quantity}×</td>
+        <td class="name">${item.menu_item_name}</td>
+        <td class="price">₹${item.total_price}</td>
+      </tr>`
+            ).join('');
+
+            const disc = order.subtotal - order.total_amount + order.tax_amount;  // rough
+            const total = order.total_amount;
+
+            let actions = '';
+            if (colClass === 'col-new') {
+                actions = `<button class="btn btn-start" onclick="startOrder('${order.id}', this)">🔥 Start Cooking</button>`;
+            } else if (colClass === 'col-kitchen') {
+                actions = `<button class="btn btn-complete" onclick="completeOrder('${order.id}', this)">✅ Mark Done</button>`;
+            }
+
+            const timeClass = elapsedClass(order.created_at);
+
+            return `
+      <div class="card" id="card-${order.id}">
+        <div class="card-header">
+          <div>
+            <div class="kot-badge">${kotLabel}</div>
+            ${phone ? `<div class="card-phone">📞 ${phone}</div>` : ''}
+          </div>
+          <div class="card-time">
+            ${fmtTime(order.created_at)}
+            <div class="card-elapsed ${timeClass}" id="elapsed-${order.id}">${elapsed(order.created_at)}</div>
+          </div>
+        </div>
+        <table class="items-table"><tbody>${rows}</tbody></table>
+        <div class="card-total">
+          <span class="total-label">Total</span>
+          <span class="total-val">₹${total}</span>
+        </div>
+        ${actions ? `<div class="card-actions">${actions}</div>` : ''}
+      </div>`;
+        }
+
+        // ── Render board ──────────────────────────────────────────────────────────
+        function renderBoard(orders) {
+            const newOrders = orders.filter(o => o.status === 'confirmed');
+            const inKitchen = orders.filter(o => o.status === 'in_kitchen');
+            const done = orders.filter(o => o.status === 'completed');
+
+            // Check for new arrivals
+            const currentIds = new Set(orders.map(o => o.id));
+            let hasNew = false;
+            currentIds.forEach(id => { if (!knownIds.has(id)) hasNew = true; });
+            if (hasNew && knownIds.size > 0) {
+                playNewOrderSound();
+                showFlash('🔥 New Order!');
+            }
+            knownIds = currentIds;
+
+            // Render each column
+            renderCol('col-new', 'cnt-new', newOrders, 'col-new');
+            renderCol('col-kitchen', 'cnt-kitchen', inKitchen, 'col-kitchen');
+            renderCol('col-done', 'cnt-done', done, 'col-done');
+
+            // Update elapsed timers
+            document.getElementById('last-updated').textContent =
+                'Updated ' + new Date().toLocaleTimeString('en-IN');
+        }
+
+        function renderCol(bodyId, cntId, orders, colClass) {
+            const body = document.getElementById(bodyId);
+            const cnt = document.getElementById(cntId);
+            cnt.textContent = orders.length;
+
+            if (orders.length === 0) {
+                body.innerHTML = `<div class="empty"><div class="empty-icon">—</div>No orders</div>`;
+                return;
+            }
+
+            // Preserve existing cards to avoid full re-render flicker;
+            // rebuild only if IDs differ
+            const existingIds = [...body.querySelectorAll('.card')].map(c => c.id.replace('card-', ''));
+            const newIds = orders.map(o => o.id);
+            const same = existingIds.length === newIds.length && existingIds.every((id, i) => id === newIds[i]);
+            if (!same) {
+                body.innerHTML = orders.map(o => buildCard(o, colClass)).join('');
+            }
+        }
+
+        // ── Flash notification ────────────────────────────────────────────────────
+        function showFlash(msg) {
+            const el = document.createElement('div');
+            el.className = 'flash';
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2500);
+        }
+
+        // ── API calls ─────────────────────────────────────────────────────────────
+        async function fetchOrders() {
+            const res = await fetch(API_BASE);
+            const data = await res.json();
+            return data.orders || [];
+        }
+
+        async function startOrder(id, btn) {
+            btn.disabled = true;
+            btn.textContent = '…';
+            await fetch(`${API_BASE}/${id}/start`, { method: 'PATCH' });
+            await refresh();
+        }
+
+        async function completeOrder(id, btn) {
+            btn.disabled = true;
+            btn.textContent = '…';
+            await fetch(`${API_BASE}/${id}/complete`, { method: 'PATCH' });
+            await refresh();
+        }
+
+        // ── Refresh loop ──────────────────────────────────────────────────────────
+        async function refresh() {
+            try {
+                const orders = await fetchOrders();
+                renderBoard(orders);
+            } catch (e) {
+                document.getElementById('last-updated').textContent = '⚠ Connection error';
+            }
+        }
+
+        // ── Elapsed timer — updates every 30s without a full re-render ───────────
+        function tickElapsed() {
+            document.querySelectorAll('[id^="elapsed-"]').forEach(el => {
+                const id = el.id.replace('elapsed-', '');
+                const card = document.getElementById('card-' + id);
+                if (!card) return;
+                // find created_at from dataset if we stored it (we don't), so skip full re-render
+                // Just refresh next cycle
+            });
+        }
+
+        // ── Boot ──────────────────────────────────────────────────────────────────
+        refresh();
+        setInterval(refresh, POLL_MS);
+        setInterval(tickElapsed, 30000);
+    </script>
+</body>
+
+</html>

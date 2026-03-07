@@ -1,0 +1,13 @@
+# voice_agent — Twilio Real-Time AI Voice Agent
+# Requirements for the voice_agent module only.
+# Run: pip3 install -r voice_agent/requirements.txt
+
+flask>=3.0
+flask-sock>=0.7
+twilio>=9.0
+pyngrok>=7.0
+websockets>=12.0
+pydub>=0.25
+numpy>=1.24
+requests>=2.31
+python-dotenv>=1.0

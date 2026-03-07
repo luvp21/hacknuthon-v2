@@ -1,0 +1,82 @@
+version: "3.9"
+
+services:
+  # ── Application ──────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: voice-ordering-app
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - voice_ordering_net
+    volumes:
+      - app_logs:/app/logs
+
+  # ── Development mode (hot-reload) ────────────────────────────
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: voice-ordering-dev
+    command: npm run dev
+    ports:
+      - "3000:3000"
+      - "9229:9229"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+    volumes:
+      - ./src:/app/src
+    networks:
+      - voice_ordering_net
+    profiles:
+      - dev
+
+  # ── PostgreSQL ───────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: voice-ordering-postgres
+    environment:
+      POSTGRES_DB: voice_ordering
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/database/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d voice_ordering"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - voice_ordering_net
+
+volumes:
+  postgres_data:
+    driver: local
+  app_logs:
+    driver: local
+
+networks:
+  voice_ordering_net:
+    driver: bridge

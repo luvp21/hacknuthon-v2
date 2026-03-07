@@ -1,0 +1,19 @@
+# Core ML & Speech
+openai-whisper>=20231117
+TTS>=0.22.0
+
+# Audio Processing
+pydub>=0.25.1
+librosa>=0.10.1
+sounddevice>=0.4.6
+scipy>=1.11.0
+
+# NLP & Fuzzy Matching
+rapidfuzz>=3.5.2
+
+# Numerical
+numpy>=1.24.0
+torch>=2.0.0
+
+# Utilities
+tqdm>=4.66.0
